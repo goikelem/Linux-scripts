@@ -4,4 +4,6 @@
 
 ## to run the command on the linux terminal:
 `./NDVI_bash.sh`
-```./NDVI_bsh.sh```
+the other way is 
+```bash
+./NDVI_bsh.sh```
