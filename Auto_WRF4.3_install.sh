@@ -10,7 +10,7 @@ fi
 # the step by step manual guide is found in this link https://www2.mmm.ucar.edu/wrf/OnLineTutorial/compilation_tutorial.php#STEP2 
 # Install compilers and libraries.
 sudo apt-get update
-sudo apt-get install -y build-essential csh gfortran m4 curl csh gzip wget aria2c perl mpich libhdf5-mpich-dev libpng-dev netcdf-bin libnetcdff-dev
+sudo apt-get install -y build-essential csh gfortran m4 curl csh gzip wget perl mpich libhdf5-mpich-dev libpng-dev netcdf-bin libnetcdff-dev
 
 dir_path=$(pwd)
 # The model installed in "/root/Build_WRF", path if you need to install in the home  "/home/user" path 
@@ -122,7 +122,7 @@ LIBRARIES_DIR=$Build_WRF/LIBRARIES
 cd $LIBRARIES_DIR
 ## Downloads libraries
 if [ ! -f "mpich-4.0.2.tar.gz" ]; then
-wget wget https://src.fedoraproject.org/lookaside/pkgs/mpich/mpich-4.0.2.tar.gz
+wget https://src.fedoraproject.org/lookaside/pkgs/mpich/mpich-4.0.2.tar.gz
 fi
 if [ ! -f "netcdf-4.8.1.tar.gz" ]; then
 wget https://src.fedoraproject.org/lookaside/pkgs/netcdf/netcdf-4.8.1.tar.gz
@@ -131,7 +131,7 @@ if [ ! -f "jasper-3.0.5.tar.gz" ]; then
 wget https://ftp.osuosl.org/pub/blfs/conglomeration/jasper/jasper-3.0.5.tar.gz
 fi
 if [ ! -f "libpng-1.6.37.tar.xz" ]; then
-wget wget https://ftp.osuosl.org/pub/blfs/conglomeration/libpng/libpng-1.6.37.tar.xz
+wget https://ftp.osuosl.org/pub/blfs/conglomeration/libpng/libpng-1.6.37.tar.xz
 fi
 if [ ! -f "zlib-1.2.12.tar.gz" ]; then
 wget https://src.fedoraproject.org/repo/pkgs/zlib/zlib-1.2.12.tar.gz
