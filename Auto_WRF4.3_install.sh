@@ -1,192 +1,117 @@
-
 #!/bin/bash
 
-# Set up environment paths
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
+# Configuration (Customize these)
+BASE_DIR="/home/goitomk"
+WRF_VERSION="v4.5.1"  # Replace with desired version
+WPS_VERSION="v4.5"      # Replace with desired version
+NETCDF_VERSION_C="4.9.2"
+NETCDF_VERSION_FORTRAN="4.6.1"
+COMPILER_CHOICE=1 # 1 for gfortran, 2 for pgf90, 3 for ifort
 
-# Check if the script is being run as root
-if [ $(id -u) != "0" ]; then
-    echo "Error: You must be root to run this script."
-    exit 1
-fi
+# Derived variables (Do not modify)
+WRF_BUILD="$BASE_DIR/WRF_Build"
+WRF_DIR="$BASE_DIR/WRF"
+WPS_DIR="$BASE_DIR/WPS"
+LIBRARIES="$BASE_DIR/LIBRARIES"
+GEOG_DATA_DIR="$WRF_BUILD/geo_em.d01"
+NETCDF_C_DIR="$WRF_BUILD/netcdf-c-$NETCDF_VERSION_C"
+NETCDF_FORTRAN_DIR="$WRF_BUILD/netcdf-fortran-$NETCDF_VERSION_FORTRAN"
 
-# Define working directory
-dir_path=$(pwd)
-Build_WRF=$dir_path/Build_WRF
-mkdir -p $Build_WRF
-echo "WRF will be compiled in $Build_WRF"
-
-# Install necessary dependencies
-apt-get update
-apt-get install -y build-essential csh gfortran m4 curl csh gzip wget perl mpich libhdf5-mpich-dev libpng-dev netcdf-bin libnetcdff-dev || {
-    echo "Error: Failed to install dependencies."
-    exit 1
+# Functions for better organization and error handling
+download_and_extract() {
+  local url="$1"
+  local filename="$2"
+  local extract_dir="$3"
+  if [ ! -d "$extract_dir" ]; then
+    wget "$url" -O "$filename"
+    tar -xzf "$filename"
+    rm "$filename"
+  fi
 }
 
-# Function to download a file with retry logic
-download_file() {
-    local url=$1
-    local filename=$2
-    local retries=3
-    local count=0
-
-    while [ $count -lt $retries ]; do
-        wget $url -O $filename && return 0
-        ((count++))
-        echo "Download attempt $count failed, retrying..."
-        sleep 5
-    done
-    echo "Error: Failed to download $filename after $retries attempts."
+compile_code() {
+  local source_dir="$1"
+  local compile_log="$2"
+  make clean # Clean before compiling
+  make >& "$compile_log"
+  if [[ $? -ne 0 ]]; then
+    echo "Compilation failed in $source_dir. Check $compile_log"
     exit 1
+  fi
 }
 
-# Test the Fortran, C, and other compilers
-mkdir -p $Build_WRF/test
-cd $Build_WRF/test
-
-# Download and run test files
-download_file "https://www2.mmm.ucar.edu/wrf/OnLineTutorial/compile_tutorial/tar_files/Fortran_C_tests.tar" "Fortran_C_tests.tar"
-tar -xf Fortran_C_tests.tar
-
-# Test Fortran and C compilers
-for test_file in TEST_1_fortran_only_fixed.f TEST_2_fortran_only_free.f90 TEST_3_c_only.c TEST_4_fortran+c_c.c; do
-    if ! gfortran $test_file || ! gcc $test_file; then
-        echo "Error: $test_file compilation failed!"
+configure_code() {
+    local source_dir="$1"
+    ./configure
+    if [[ $? -ne 0 ]]; then
+        echo "Configuration failed in $source_dir"
         exit 1
     fi
-    ./a.out > a.out.log
-    if grep -q "SUCCESS" a.out.log; then
-        echo "$test_file test SUCCESS"
-    else
-        echo "Error: $test_file test failed!"
-        exit 1
-    fi
-    rm -f a.out a.out.log
-done
+}
 
-# Test other scripts
-for script in TEST_csh.csh TEST_perl.pl TEST_sh.sh; do
-    ./$script > a.out.log
-    if grep -q "SUCCESS" a.out.log; then
-        echo "$script test SUCCESS"
-    else
-        echo "Error: $script test failed!"
-        exit 1
-    fi
-    rm -f a.out.log
-done
+# Create directories
+mkdir -p "$WRF_BUILD" "$WRF_DIR" "$WPS_DIR" "$LIBRARIES"
 
-echo "All compile tests passed!"
+# Install system dependencies (Ubuntu/Debian example)
+sudo apt-get update
+sudo apt-get install -y build-essential gfortran gcc g++ libpng-dev libjpeg-dev zlib1g-dev bison flex libnetcdf-dev libnetcdff-dev libmpich-dev libjasper-dev libhdf5-dev
 
-# Build libraries (NetCDF, MPICH, zlib, libpng, jasper)
-cd $Build_WRF
+# Download source code
+cd "$WRF_BUILD"
 
-mkdir -p LIBRARIES
-LIBRARIES_DIR=$Build_WRF/LIBRARIES
-cd $LIBRARIES_DIR
+download_and_extract "https://github.com/wrf-model/WRF/archive/refs/tags/$WRF_VERSION.tar.gz" "WRF.tar.gz" "WRF"
+download_and_extract "https://github.com/wrf-model/WPS/archive/refs/tags/$WPS_VERSION.tar.gz" "WPS.tar.gz" "WPS"
 
-# Download and install libraries
-download_file "https://src.fedoraproject.org/lookaside/pkgs/mpich/mpich-4.0.2.tar.gz" "mpich-4.0.2.tar.gz"
-download_file "https://src.fedoraproject.org/lookaside/pkgs/netcdf/netcdf-4.8.1.tar.gz" "netcdf-4.8.1.tar.gz"
-download_file "https://ftp.osuosl.org/pub/blfs/conglomeration/jasper/jasper-3.0.5.tar.gz" "jasper-3.0.5.tar.gz"
-download_file "https://ftp.osuosl.org/pub/blfs/conglomeration/libpng/libpng-1.6.37.tar.xz" "libpng-1.6.37.tar.xz"
-download_file "https://src.fedoraproject.org/repo/pkgs/zlib/zlib-1.2.12.tar.gz" "zlib-1.2.12.tar.gz"
+# Download and extract geographical data
+download_and_extract "http://www2.mmm.ucar.edu/wrf/users/download/geo_em.d01.tar.gz" "geo_em.d01.tar.gz" "$GEOG_DATA_DIR"
 
-# Install NetCDF
-export DIR=$LIBRARIES_DIR
-export CC=gcc
-export CXX=g++
-export FC=gfortran
-export FCFLAGS=-m64
-export F77=gfortran
-export FFLAGS=-m64
-
-tar zxvf netcdf-4.8.1.tar.gz
-cd netcdf-4.8.1
-./configure --prefix=$DIR/netcdf --disable-dap --disable-netcdf-4 --disable-shared || { echo "Error: NetCDF configure failed"; exit 1; }
-make || { echo "Error: NetCDF make failed"; exit 1; }
-make install || { echo "Error: NetCDF make install failed"; exit 1; }
-export PATH=$DIR/netcdf/bin:$PATH
-export NETCDF=$DIR/netcdf
-cd ..
-
-# Install MPICH
-tar xzvf mpich-4.0.2.tar.gz
-cd mpich-4.0.2
-./configure --prefix=$DIR/mpich || { echo "Error: MPICH configure failed"; exit 1; }
-make || { echo "Error: MPICH make failed"; exit 1; }
-make install || { echo "Error: MPICH make install failed"; exit 1; }
-export PATH=$DIR/mpich/bin:$PATH
-cd ..
-
-# Install zlib
-export LDFLAGS=-L$DIR/grib2/lib
-export CPPFLAGS=-I$DIR/grib2/include
-tar xzvf zlib-1.2.12.tar.gz
-cd zlib-1.2.12
-./configure --prefix=$DIR/grib2 || { echo "Error: zlib configure failed"; exit 1; }
-make || { echo "Error: zlib make failed"; exit 1; }
-make install || { echo "Error: zlib make install failed"; exit 1; }
-cd ..
-
-# Install libpng
-tar xvf libpng-1.6.37.tar.xz
-cd libpng-1.6.37
-./configure --prefix=$DIR/grib2 || { echo "Error: libpng configure failed"; exit 1; }
-make || { echo "Error: libpng make failed"; exit 1; }
-make install || { echo "Error: libpng make install failed"; exit 1; }
-cd ..
-
-# Install JasPer
-tar xzvf jasper-3.0.5.tar.gz
-cd jasper-3.0.5
-./configure --prefix=$DIR/grib2 || { echo "Error: JasPer configure failed"; exit 1; }
-make || { echo "Error: JasPer make failed"; exit 1; }
-make install || { echo "Error: JasPer make install failed"; exit 1; }
-cd ..
-
-echo "All libraries installed successfully."
-
-# Build WRF
-cd $Build_WRF
-download_file "https://github.com/wrf-model/WRF/archive/v4.3.3.tar.gz" "WRFV4.3.3.tar.gz"
-mv v4.3.3.tar.gz WRFV4.3.3.tar.gz
-tar -zxvf WRFV4.3.3.tar.gz
-cd WRF-4.3.3
-
-# Configure WRF
-sed -i 's#  export USENETCDF=$USENETCDF.*#  export USENETCDF="-lnetcdf"#' configure
-sed -i 's#  export USENETCDFF=$USENETCDFF.*#  export USENETCDFF="-lnetcdff"#' configure
-
-gfortran_version=$(gfortran -dumpversion | cut -d'.' -f1)
-if [ "$gfortran_version" -lt 8 ] && [ "$gfortran_version" -ge 6 ]; then
-    sed -i '/-DBUILD_RRTMG_FAST=1/d' configure.wrf
+#Download NetCDF source and compile if the LIBRARIES directory is empty
+if [ ! -d "$LIBRARIES/lib" ] || [ ! -d "$LIBRARIES/include" ]; then
+    download_and_extract "https://downloads.unidata.ucar.edu/netcdf/netcdf-c-$NETCDF_VERSION_C.tar.gz" "netcdf-c.tar.gz" "$NETCDF_C_DIR"
+    download_and_extract "https://downloads.unidata.ucar.edu/netcdf/netcdf-fortran-$NETCDF_VERSION_FORTRAN.tar.gz" "netcdf-fortran.tar.gz" "$NETCDF_FORTRAN_DIR"
+    cd "$NETCDF_C_DIR"
+    ./configure --prefix="$LIBRARIES"
+    compile_code "$NETCDF_C_DIR" "compile_netcdf_c.log"
+    cd "$NETCDF_FORTRAN_DIR"
+    ./configure --prefix="$LIBRARIES" --enable-netcdf-4 --with-netcdf="$LIBRARIES"
+    compile_code "$NETCDF_FORTRAN_DIR" "compile_netcdf_fortran.log"
 fi
 
-./configure || { echo "WRF configure failed"; exit 1; }
-./compile em_real > log.compile_wrf || { echo "WRF compile failed"; exit 1; }
+# Set environment variables (add to .bashrc and source it)
+echo "export NETCDF=$LIBRARIES" >> ~/.bashrc
+echo "export PATH=\$PATH:$WRF_DIR/external/io_grib1" >> ~/.bashrc
+echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$LIBRARIES/lib" >> ~/.bashrc
+echo "export WRF_DIR=$WRF_DIR" >> ~/.bashrc
+echo "export WPS_DIR=$WPS_DIR" >> ~/.bashrc
+source ~/.bashrc
 
+# Compile WRF
+cd "$WRF_DIR"
 if [ ! -f "main/wrf.exe" ]; then
-    echo "Error: WRF compilation failed. wrf.exe not found"
-    exit 1
-else
-    echo "WRF installed successfully!"
+    configure_code "$WRF_DIR"
+    # Choose your compiler option interactively
+    sed -i "s/DM_FC = -DFSEEKO_OK -DDM_PARALLEL/DM_FC = -DDM_PARALLEL/" configure.wrf
+    ./compile em_real >& compile_wrf.log
+    if [[ $? -ne 0 ]]; then
+        echo "WRF compilation failed. Check compile_wrf.log"
+        exit 1
+    fi
 fi
 
-# Build WPS
-cd $Build_WRF
-download_file "https://github.com/wrf-model/WPS/archive/v4.3.1.tar.gz" "WPSV4.3.1.tar.gz"
-mv v4.3.1.tar.gz WPSV4.3.1.tar.gz
-tar -zxvf WPSV4.3.1.tar.gz
-mv WPS-4.3.1 WPS
-cd WPS
+# Compile WPS
+cd "$WPS_DIR"
+if [ ! -f "geogrid.exe" ]; then
+    configure_code "$WPS_DIR"
+    compile_code "$WPS_DIR" "compile_wps.log"
+    if [[ $? -ne 0 ]]; then
+        echo "WPS compilation failed. Check compile_wps.log"
+        exit 1
+    fi
+fi
 
-# Configure and compile WPS
-cd arch
-cp Config.pl Config.pl_backup
-sed -i '141s/.*/  $response = 3 ;/' Config.pl
-cd ..
-./clean
-sed -i '133s/.*/    NETCDFF="-lnetcdff"/' configure
-sed -i "165s/.*/standard_wrf_dirs=\"WRF-4.3.3 WRF WRF-4.0.3 WRF-4.0.2 WRF-4.0.1 WRF-4.0 WRFV3\"/" configure
-./
+# Configure namelist.wps
+if ! grep -q "geog_data_path = '$GEOG_DATA_DIR'" "$WPS_DIR/namelist.wps"; then
+    sed -i "s/geog_data_path.*=.*/geog_data_path = '$GEOG_DATA_DIR'/" "$WPS_DIR/namelist.wps"
+fi
+
+echo "WRF and WPS setup complete."
